@@ -216,6 +216,21 @@
                 <div class="w-full h-6 bg-gray-200 rounded-full overflow-hidden mb-6">
                     <div class="h-full bg-gradient-to-r from-green-500 to-green-600 rounded-full transition-all duration-300 ease-out" id="progressFill" style="width: 0%"></div>
                 </div>
+                
+                <!-- Current Step Display -->
+                <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6 rounded-r-lg">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                                <span class="text-white text-sm font-bold" id="stepIcon">⏳</span>
+                            </div>
+                        </div>
+                        <div class="ml-3">
+                            <h3 class="text-sm font-medium text-blue-800">Current Step</h3>
+                            <p class="text-sm text-blue-700" id="currentStep">Preparing migration...</p>
+                        </div>
+                    </div>
+                </div>
 
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
                     <div class="bg-white p-4 rounded-lg border-l-4 border-blue-500">
@@ -240,8 +255,13 @@
                     </div>
                 </div>
 
-                <div class="bg-slate-800 text-gray-100 p-5 rounded-lg h-48 overflow-y-auto font-mono text-sm" id="logContainer">
-                    <div class="text-blue-400 mb-1">Waiting for migration to start...</div>
+                <div class="bg-slate-800 text-gray-100 rounded-lg overflow-hidden">
+                    <div class="bg-slate-700 px-5 py-3 border-b border-slate-600">
+                        <h3 class="text-sm font-semibold text-gray-200">Migration Log</h3>
+                    </div>
+                    <div class="p-5 h-48 overflow-y-auto font-mono text-sm" id="logContainer">
+                        <div class="text-blue-400 mb-1">Waiting for migration to start...</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -571,6 +591,46 @@
             // Update progress bar
             document.getElementById('progressFill').style.width = status.current_progress + '%';
             document.getElementById('progressText').textContent = data.message;
+            
+            // Update current step display with more detailed information
+            let stepText = data.message;
+            let stepIcon = '⏳';
+            
+            // Determine step icon and enhance step text
+            if (data.message.includes('🔌')) {
+                stepIcon = '🔌';
+                stepText = 'Connecting to databases...';
+            } else if (data.message.includes('📋')) {
+                stepIcon = '📋';
+                stepText = 'Fetching table information...';
+            } else if (data.message.includes('⚡')) {
+                stepIcon = '⚡';
+                stepText = 'Starting parallel migration...';
+            } else if (data.message.includes('📊')) {
+                stepIcon = '📊';
+                stepText = `Migrating table: ${status.current_table || 'Unknown'}`;
+            } else if (data.message.includes('✅')) {
+                stepIcon = '✅';
+                stepText = 'Migration step completed';
+            } else if (data.message.includes('❌')) {
+                stepIcon = '❌';
+                stepText = 'Migration error occurred';
+            } else if (data.message.includes('🎉')) {
+                stepIcon = '🎉';
+                stepText = 'Migration completed successfully!';
+            } else if (data.message.includes('🔄')) {
+                stepIcon = '🔄';
+                stepText = 'Processing migration tasks...';
+            } else if (data.message.includes('📤')) {
+                stepIcon = '📤';
+                stepText = 'Submitting migration tasks...';
+            } else if (data.message.includes('📈')) {
+                stepIcon = '📈';
+                stepText = 'Analyzing table data...';
+            }
+            
+            document.getElementById('currentStep').textContent = stepText;
+            document.getElementById('stepIcon').textContent = stepIcon;
             
             // Update status items
             document.getElementById('currentTable').textContent = status.current_table || '-';
