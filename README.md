@@ -22,7 +22,7 @@ A Flask-based web application that migrates data from MySQL to PostgreSQL with r
 
 1. **Clone and navigate to the project directory:**
    ```bash
-   cd /Users/amir/Desktop/projects/modaam
+   cd /Users/amir/Desktop/projects/project
    ```
 
 2. **Start the application with sample data:**
