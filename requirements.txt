@@ -3,7 +3,7 @@ Flask-SocketIO==5.3.6
 mysql-connector-python==8.1.0
 psycopg2-binary==2.9.7
 python-socketio==5.8.0
-eventlet==0.33.3
+eventlet==0.40.3
 python-dotenv==1.0.0
 psutil==5.9.6
 multiprocessing-logging==0.3.4
