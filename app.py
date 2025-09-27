@@ -354,8 +354,13 @@ def run_migration(mysql_config, postgres_config):
     postgres_conn = None
     
     try:
+        print("DEBUG: Starting run_migration function")
+        print(f"DEBUG: MySQL config: {mysql_config}")
+        print(f"DEBUG: PostgreSQL config: {postgres_config}")
+        
         # Connect to databases with timeout handling
         emit_progress_safe('🔌 Connecting to MySQL database...')
+        print("DEBUG: About to connect to MySQL")
         try:
             print(f"DEBUG: About to connect to MySQL with config: {mysql_config}")
             mysql_conn = db_manager.connect_mysql(mysql_config)
@@ -365,6 +370,7 @@ def run_migration(mysql_config, postgres_config):
             print(f"DEBUG: MySQL connection failed: {e}")
             raise Exception(f'Failed to connect to MySQL: {str(e)}')
         
+        print("DEBUG: MySQL connection successful, proceeding to PostgreSQL")
         emit_progress_safe('🔌 Connecting to PostgreSQL database...')
         try:
             print(f"DEBUG: About to connect to PostgreSQL with config: {postgres_config}")
@@ -375,6 +381,8 @@ def run_migration(mysql_config, postgres_config):
             print(f"DEBUG: PostgreSQL connection failed: {e}")
             raise Exception(f'Failed to connect to PostgreSQL: {str(e)}')
         
+        print("DEBUG: Both database connections successful, proceeding to fetch tables")
+        
         # Get all tables from MySQL
         emit_progress_safe('📋 Fetching table list from MySQL...')
         try:
@@ -383,25 +391,35 @@ def run_migration(mysql_config, postgres_config):
             print(f"DEBUG: Got tables: {tables}")
             if not tables:
                 raise Exception('No tables found in MySQL database')
+            print(f"DEBUG: Found {len(tables)} tables, updating migration status")
             update_migration_status({'total_tables': len(tables)})
+            print(f"DEBUG: Migration status updated with total_tables: {len(tables)}")
             emit_progress_safe(f'✓ Found {len(tables)} tables to migrate: {", ".join(tables[:5])}{"..." if len(tables) > 5 else ""}')
         except Exception as e:
             print(f"DEBUG: Error fetching tables: {e}")
             raise Exception(f'Failed to fetch tables from MySQL: {str(e)}')
         
+        print("DEBUG: Table fetching successful, proceeding to create thread pool")
+        
         # Create thread pool executor for parallel table processing
+        print(f"DEBUG: Creating thread pool with system_monitor.cpu_cores: {system_monitor.cpu_cores}, tables: {len(tables)}")
         max_workers = min(system_monitor.cpu_cores, len(tables))
+        print(f"DEBUG: Max workers calculated: {max_workers}")
         update_migration_status({'parallel_workers': max_workers})
+        print(f"DEBUG: Parallel workers updated in migration status")
         
         # Emit progress update to show the updated status
         emit_progress_safe(f'⚡ Starting parallel migration with {max_workers} workers')
+        print("DEBUG: About to create ThreadPoolExecutor")
         
         # Use ThreadPoolExecutor for parallel table migration
         emit_progress_safe(f'🔄 Creating thread pool with {max_workers} workers for {len(tables)} tables')
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            print("DEBUG: ThreadPoolExecutor created successfully")
             # Submit all table migration tasks
             emit_progress_safe('📤 Submitting table migration tasks...')
+            print(f"DEBUG: About to submit {len(tables)} table migration tasks")
             future_to_table = {
                 executor.submit(
                     migrate_table_parallel, 
@@ -414,12 +432,15 @@ def run_migration(mysql_config, postgres_config):
                 for i, table_name in enumerate(tables)
             }
             
+            print(f"DEBUG: Submitted {len(future_to_table)} table migration tasks")
             emit_progress_safe(f'✅ Submitted {len(future_to_table)} table migration tasks')
             
             # Process completed tasks
+            print("DEBUG: About to start processing completed tasks")
             completed_tables = 0
             for future in as_completed(future_to_table):
                 table_name = future_to_table[future]
+                print(f"DEBUG: Processing completed task for table: {table_name}")
                 try:
                     emit_progress_safe(f'🔄 Processing result for table: {table_name}')
                     result = future.result()
