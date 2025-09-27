@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  # Flask Application
+  app:
+    build: .
+    container_name: migration_app
+    ports:
+      - "5001:5000"
+    environment:
+      - FLASK_ENV=development
+    env_file:
+      - .env
+    restart: unless-stopped
+    volumes:
+      - .:/app
+    command: python app.py

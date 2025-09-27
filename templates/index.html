@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MySQL to PostgreSQL Migration Tool</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: {
+                            50: '#eff6ff',
+                            500: '#3b82f6',
+                            600: '#2563eb',
+                            700: '#1d4ed8',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-blue-500 via-purple-600 to-purple-800 p-5">
+    <div class="max-w-6xl mx-auto bg-white rounded-2xl shadow-2xl overflow-hidden">
+        <div class="bg-gradient-to-r from-slate-800 to-slate-700 text-white p-8 text-center">
+            <h1 class="text-4xl font-bold mb-3">🔄 Database Migration Tool</h1>
+            <p class="text-lg opacity-90">Migrate your data from MySQL to PostgreSQL with real-time progress tracking</p>
+        </div>
+
+        <div class="p-8">
+            <div class="hidden bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded-lg mb-5" id="successAlert"></div>
+            <div class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-5" id="errorAlert"></div>
+
+            <!-- System Configuration Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                <div class="bg-gray-50 p-6 rounded-xl border-2 border-gray-200">
+                    <h3 class="text-xl font-semibold text-slate-800 mb-6 flex items-center">
+                        <span class="w-1 h-5 bg-blue-500 rounded mr-3"></span>
+                        ⚙️ System Configuration
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label for="cpuCores" class="block text-sm font-semibold text-gray-700 mb-2">CPU Cores to Use:</label>
+                            <input type="number" id="cpuCores" value="3" min="1" max="8" placeholder="3" 
+                                   class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition-colors">
+                        </div>
+                        <div>
+                            <label for="memoryLimit" class="block text-sm font-semibold text-gray-700 mb-2">Memory Limit (MB):</label>
+                            <input type="number" id="memoryLimit" value="1024" min="256" max="8192" placeholder="1024" 
+                                   class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 transition-colors">
+                        </div>
+                        <button id="updateConfig" onclick="updateSystemConfig()" 
+                                class="w-full bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg">
+                            🔧 Update Configuration
+                        </button>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 p-6 rounded-xl border-2 border-gray-200">
+                    <h3 class="text-xl font-semibold text-slate-800 mb-6 flex items-center">
+                        <span class="w-1 h-5 bg-blue-500 rounded mr-3"></span>
+                        📊 System Monitor
+                    </h3>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6" id="systemMonitor">
+                        <div class="bg-white p-4 rounded-lg border-l-4 border-blue-500">
+                            <h4 class="text-sm font-semibold text-slate-800 mb-2">Memory Usage</h4>
+                            <p id="memoryUsage" class="text-gray-600 font-semibold">Loading...</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg border-l-4 border-blue-500">
+                            <h4 class="text-sm font-semibold text-slate-800 mb-2">CPU Usage</h4>
+                            <p id="cpuUsage" class="text-gray-600 font-semibold">Loading...</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg border-l-4 border-blue-500">
+                            <h4 class="text-sm font-semibold text-slate-800 mb-2">Process Memory</h4>
+                            <p id="processMemory" class="text-gray-600 font-semibold">Loading...</p>
+                        </div>
+                        <div class="bg-white p-4 rounded-lg border-l-4 border-blue-500">
+                            <h4 class="text-sm font-semibold text-slate-800 mb-2">Memory Warning</h4>
+                            <p id="memoryWarning" class="text-gray-600 font-semibold">No</p>
+                        </div>
+                    </div>
+                    <button id="forceGC" onclick="forceGarbageCollection()" 
+                            class="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg">
+                        🗑️ Force Garbage Collection
+                    </button>
+                </div>
+            </div>
+
+            <!-- Database Configuration Display -->
+            <div class="bg-blue-50 p-6 rounded-xl border-2 border-blue-200 mb-8">
+                <h3 class="text-xl font-semibold text-slate-800 mb-6 flex items-center">
+                    <span class="w-1 h-5 bg-blue-500 rounded mr-3"></span>
+                    📋 Database Configuration
+                </h3>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                        <h4 class="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+                            📊 MySQL Source Database
+                        </h4>
+                        <div class="space-y-3" id="mysqlConfig">
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Host:</span>
+                                <span class="text-sm font-semibold text-gray-800" id="mysqlHost">Loading...</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Port:</span>
+                                <span class="text-sm font-semibold text-gray-800" id="mysqlPort">Loading...</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Username:</span>
+                                <span class="text-sm font-semibold text-gray-800" id="mysqlUser">Loading...</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Database:</span>
+                                <span class="text-sm font-semibold text-gray-800" id="mysqlDatabase">Loading...</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Password:</span>
+                                <span class="text-sm font-semibold" id="mysqlPasswordStatus">
+                                    <span class="text-green-600">✓ Configured</span>
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Connection:</span>
+                                <span class="text-sm font-semibold" id="mysqlConnectionStatus">
+                                    <span class="text-gray-500">Checking...</span>
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Tables:</span>
+                                <span class="text-sm font-semibold" id="mysqlTablesCount">
+                                    <span class="text-gray-500">-</span>
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Response Time:</span>
+                                <span class="text-sm font-semibold" id="mysqlResponseTime">
+                                    <span class="text-gray-500">-</span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-4 rounded-lg border border-gray-200">
+                        <h4 class="text-lg font-semibold text-slate-800 mb-4 flex items-center">
+                            🐘 PostgreSQL Target Database
+                        </h4>
+                        <div class="space-y-3" id="postgresConfig">
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Host:</span>
+                                <span class="text-sm font-semibold text-gray-800" id="postgresHost">Loading...</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Port:</span>
+                                <span class="text-sm font-semibold text-gray-800" id="postgresPort">Loading...</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Username:</span>
+                                <span class="text-sm font-semibold text-gray-800" id="postgresUser">Loading...</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Database:</span>
+                                <span class="text-sm font-semibold text-gray-800" id="postgresDatabase">Loading...</span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Password:</span>
+                                <span class="text-sm font-semibold" id="postgresPasswordStatus">
+                                    <span class="text-green-600">✓ Configured</span>
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Connection:</span>
+                                <span class="text-sm font-semibold" id="postgresConnectionStatus">
+                                    <span class="text-gray-500">Checking...</span>
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Tables:</span>
+                                <span class="text-sm font-semibold" id="postgresTablesCount">
+                                    <span class="text-gray-500">-</span>
+                                </span>
+                            </div>
+                            <div class="flex justify-between">
+                                <span class="text-sm font-medium text-gray-600">Response Time:</span>
+                                <span class="text-sm font-semibold" id="postgresResponseTime">
+                                    <span class="text-gray-500">-</span>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-4 flex justify-between items-center">
+                    <div class="p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex-1 mr-4">
+                        <p class="text-sm text-yellow-800">
+                            <span class="font-semibold">Note:</span> Database configuration is loaded from the .env file. 
+                            To modify settings, update the .env file and restart the application.
+                        </p>
+                    </div>
+                    <button id="testConnections" onclick="testDatabaseConnections()" 
+                            class="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg">
+                        🔍 Test Connections
+                    </button>
+                </div>
+            </div>
+
+            <button id="startMigration" onclick="startMigration()" 
+                    class="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 disabled:from-gray-400 disabled:to-gray-500 text-white font-semibold py-4 px-8 rounded-lg transition-all duration-300 transform hover:-translate-y-1 hover:shadow-lg disabled:transform-none disabled:shadow-none">
+                🚀 Start Migration
+            </button>
+
+            <div class="hidden bg-gray-50 p-6 rounded-xl border-2 border-gray-200 mt-8" id="progressSection">
+                <div class="text-center font-semibold text-slate-800 mb-6" id="progressText">Ready to start migration...</div>
+                <div class="w-full h-6 bg-gray-200 rounded-full overflow-hidden mb-6">
+                    <div class="h-full bg-gradient-to-r from-green-500 to-green-600 rounded-full transition-all duration-300 ease-out" id="progressFill" style="width: 0%"></div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+                    <div class="bg-white p-4 rounded-lg border-l-4 border-blue-500">
+                        <h4 class="text-sm font-semibold text-slate-800 mb-2">Current Table</h4>
+                        <p id="currentTable" class="text-gray-600 font-semibold">-</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg border-l-4 border-blue-500">
+                        <h4 class="text-sm font-semibold text-slate-800 mb-2">Tables Progress</h4>
+                        <p id="tablesProgress" class="text-gray-600 font-semibold">0 / 0</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg border-l-4 border-blue-500">
+                        <h4 class="text-sm font-semibold text-slate-800 mb-2">Records Progress</h4>
+                        <p id="recordsProgress" class="text-gray-600 font-semibold">0 / 0</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg border-l-4 border-green-500">
+                        <h4 class="text-sm font-semibold text-slate-800 mb-2">Parallel Workers</h4>
+                        <p id="parallelWorkers" class="text-gray-600 font-semibold">0</p>
+                    </div>
+                    <div class="bg-white p-4 rounded-lg border-l-4 border-blue-500">
+                        <h4 class="text-sm font-semibold text-slate-800 mb-2">Overall Progress</h4>
+                        <p id="overallProgress" class="text-gray-600 font-semibold">0%</p>
+                    </div>
+                </div>
+
+                <div class="bg-slate-800 text-gray-100 p-5 rounded-lg h-48 overflow-y-auto font-mono text-sm" id="logContainer">
+                    <div class="text-blue-400 mb-1">Waiting for migration to start...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let isMigrationRunning = false;
+        let systemMonitorInterval;
+
+        socket.on('progress_update', function(data) {
+            updateProgress(data);
+        });
+
+        // Initialize system monitoring and database config
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSystemConfig();
+            loadDatabaseConfig();
+            startSystemMonitoring();
+            
+            // Automatically test database connections after a short delay
+            setTimeout(() => {
+                testDatabaseConnections();
+            }, 1000);
+        });
+
+        function loadSystemConfig() {
+            fetch('/api/system_config')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('cpuCores').value = data.cpu_cores;
+                    document.getElementById('memoryLimit').value = data.memory_limit_mb;
+                })
+                .catch(error => {
+                    console.error('Failed to load system config:', error);
+                });
+        }
+
+        function loadDatabaseConfig() {
+            fetch('/api/database_config')
+                .then(response => response.json())
+                .then(data => {
+                    // Update MySQL configuration display
+                    document.getElementById('mysqlHost').textContent = data.mysql.host;
+                    document.getElementById('mysqlPort').textContent = data.mysql.port;
+                    document.getElementById('mysqlUser').textContent = data.mysql.user;
+                    document.getElementById('mysqlDatabase').textContent = data.mysql.database || 'Not configured';
+                    
+                    // Update MySQL password status
+                    const mysqlPasswordStatus = document.getElementById('mysqlPasswordStatus');
+                    if (data.mysql.password_set) {
+                        mysqlPasswordStatus.innerHTML = '<span class="text-green-600">✓ Configured</span>';
+                    } else {
+                        mysqlPasswordStatus.innerHTML = '<span class="text-red-600">✗ Not configured</span>';
+                    }
+                    
+                    // Update PostgreSQL configuration display
+                    document.getElementById('postgresHost').textContent = data.postgres.host;
+                    document.getElementById('postgresPort').textContent = data.postgres.port;
+                    document.getElementById('postgresUser').textContent = data.postgres.user;
+                    document.getElementById('postgresDatabase').textContent = data.postgres.database || 'Not configured';
+                    
+                    // Update PostgreSQL password status
+                    const postgresPasswordStatus = document.getElementById('postgresPasswordStatus');
+                    if (data.postgres.password_set) {
+                        postgresPasswordStatus.innerHTML = '<span class="text-green-600">✓ Configured</span>';
+                    } else {
+                        postgresPasswordStatus.innerHTML = '<span class="text-red-600">✗ Not configured</span>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to load database config:', error);
+                });
+        }
+
+        function testDatabaseConnections() {
+            // Disable the test button and show loading state
+            const testButton = document.getElementById('testConnections');
+            const originalText = testButton.innerHTML;
+            testButton.disabled = true;
+            testButton.innerHTML = '🔄 Testing...';
+            
+            // Reset connection status to checking
+            document.getElementById('mysqlConnectionStatus').innerHTML = '<span class="text-blue-500">🔄 Testing...</span>';
+            document.getElementById('postgresConnectionStatus').innerHTML = '<span class="text-blue-500">🔄 Testing...</span>';
+            
+            fetch('/api/database_status')
+                .then(response => response.json())
+                .then(data => {
+                    // Update MySQL connection status
+                    const mysqlConnectionStatus = document.getElementById('mysqlConnectionStatus');
+                    const mysqlTablesCount = document.getElementById('mysqlTablesCount');
+                    const mysqlResponseTime = document.getElementById('mysqlResponseTime');
+                    
+                    if (data.mysql.connected) {
+                        mysqlConnectionStatus.innerHTML = '<span class="text-green-600">✓ Connected</span>';
+                        mysqlTablesCount.innerHTML = `<span class="text-green-600">${data.mysql.tables_count}</span>`;
+                        mysqlResponseTime.innerHTML = `<span class="text-green-600">${data.mysql.connection_time}ms</span>`;
+                    } else {
+                        mysqlConnectionStatus.innerHTML = '<span class="text-red-600">✗ Failed</span>';
+                        mysqlTablesCount.innerHTML = '<span class="text-red-600">-</span>';
+                        mysqlResponseTime.innerHTML = '<span class="text-red-600">-</span>';
+                        console.error('MySQL connection error:', data.mysql.error);
+                    }
+                    
+                    // Update PostgreSQL connection status
+                    const postgresConnectionStatus = document.getElementById('postgresConnectionStatus');
+                    const postgresTablesCount = document.getElementById('postgresTablesCount');
+                    const postgresResponseTime = document.getElementById('postgresResponseTime');
+                    
+                    if (data.postgres.connected) {
+                        postgresConnectionStatus.innerHTML = '<span class="text-green-600">✓ Connected</span>';
+                        postgresTablesCount.innerHTML = `<span class="text-green-600">${data.postgres.tables_count}</span>`;
+                        postgresResponseTime.innerHTML = `<span class="text-green-600">${data.postgres.connection_time}ms</span>`;
+                    } else {
+                        postgresConnectionStatus.innerHTML = '<span class="text-red-600">✗ Failed</span>';
+                        postgresTablesCount.innerHTML = '<span class="text-red-600">-</span>';
+                        postgresResponseTime.innerHTML = '<span class="text-red-600">-</span>';
+                        console.error('PostgreSQL connection error:', data.postgres.error);
+                    }
+                    
+                    // Show connection summary
+                    const bothConnected = data.mysql.connected && data.postgres.connected;
+                    if (bothConnected) {
+                        showNotification('✅ Both database connections successful!', 'success');
+                    } else {
+                        const errors = [];
+                        if (!data.mysql.connected) errors.push(`MySQL: ${data.mysql.error}`);
+                        if (!data.postgres.connected) errors.push(`PostgreSQL: ${data.postgres.error}`);
+                        showNotification(`❌ Connection failed: ${errors.join(', ')}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to test database connections:', error);
+                    showNotification('❌ Failed to test database connections', 'error');
+                    
+                    // Reset to error state
+                    document.getElementById('mysqlConnectionStatus').innerHTML = '<span class="text-red-600">✗ Error</span>';
+                    document.getElementById('postgresConnectionStatus').innerHTML = '<span class="text-red-600">✗ Error</span>';
+                })
+                .finally(() => {
+                    // Re-enable the test button
+                    testButton.disabled = false;
+                    testButton.innerHTML = originalText;
+                });
+        }
+
+        function showNotification(message, type = 'info') {
+            // Create notification element
+            const notification = document.createElement('div');
+            notification.className = `fixed top-4 right-4 p-4 rounded-lg shadow-lg z-50 transition-all duration-300 transform translate-x-full`;
+            
+            if (type === 'success') {
+                notification.className += ' bg-green-500 text-white';
+            } else if (type === 'error') {
+                notification.className += ' bg-red-500 text-white';
+            } else {
+                notification.className += ' bg-blue-500 text-white';
+            }
+            
+            notification.innerHTML = `
+                <div class="flex items-center">
+                    <span class="mr-2">${message}</span>
+                    <button onclick="this.parentElement.parentElement.remove()" class="ml-2 text-white hover:text-gray-200">
+                        ✕
+                    </button>
+                </div>
+            `;
+            
+            document.body.appendChild(notification);
+            
+            // Animate in
+            setTimeout(() => {
+                notification.classList.remove('translate-x-full');
+            }, 100);
+            
+            // Auto remove after 5 seconds
+            setTimeout(() => {
+                notification.classList.add('translate-x-full');
+                setTimeout(() => {
+                    if (notification.parentElement) {
+                        notification.remove();
+                    }
+                }, 300);
+            }, 5000);
+        }
+
+        function updateSystemConfig() {
+            const cpuCores = parseInt(document.getElementById('cpuCores').value);
+            const memoryLimit = parseInt(document.getElementById('memoryLimit').value);
+
+            fetch('/api/system_config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    cpu_cores: cpuCores,
+                    memory_limit_mb: memoryLimit
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                showAlert('success', 'System configuration updated successfully!');
+            })
+            .catch(error => {
+                showAlert('error', 'Failed to update system configuration: ' + error.message);
+            });
+        }
+
+        function startSystemMonitoring() {
+            updateSystemInfo();
+            systemMonitorInterval = setInterval(updateSystemInfo, 2000);
+        }
+
+        function updateSystemInfo() {
+            fetch('/api/system_info')
+                .then(response => response.json())
+                .then(data => {
+                    const memory = data.memory;
+                    const cpu = data.cpu;
+
+                    document.getElementById('memoryUsage').textContent = 
+                        `${memory.used_memory_mb.toFixed(1)} MB / ${memory.total_memory_mb.toFixed(1)} MB (${memory.memory_percent.toFixed(1)}%)`;
+                    
+                    document.getElementById('cpuUsage').textContent = 
+                        `${cpu.cpu_percent.toFixed(1)}% (${cpu.cpu_cores_used} cores)`;
+                    
+                    document.getElementById('processMemory').textContent = 
+                        `${memory.process_memory_mb.toFixed(1)} MB (${memory.process_memory_percent.toFixed(1)}%)`;
+                    
+                    const warningElement = document.getElementById('memoryWarning');
+                    if (memory.memory_warning) {
+                        warningElement.textContent = 'Yes';
+                        warningElement.className = 'memory-warning';
+                    } else {
+                        warningElement.textContent = 'No';
+                        warningElement.className = 'memory-ok';
+                    }
+                })
+                .catch(error => {
+                    console.error('Failed to update system info:', error);
+                });
+        }
+
+        function forceGarbageCollection() {
+            fetch('/api/force_gc', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                showAlert('success', data.message);
+                updateSystemInfo();
+            })
+            .catch(error => {
+                showAlert('error', 'Failed to trigger garbage collection: ' + error.message);
+            });
+        }
+
+        function startMigration() {
+            if (isMigrationRunning) {
+                return;
+            }
+
+            // Check database connections before starting migration
+            const mysqlConnected = document.getElementById('mysqlConnectionStatus').textContent.includes('✓ Connected');
+            const postgresConnected = document.getElementById('postgresConnectionStatus').textContent.includes('✓ Connected');
+            
+            if (!mysqlConnected || !postgresConnected) {
+                showNotification('❌ Please test database connections before starting migration', 'error');
+                return;
+            }
+
+            isMigrationRunning = true;
+            document.getElementById('startMigration').disabled = true;
+            document.getElementById('startMigration').textContent = '🔄 Migration in Progress...';
+            document.getElementById('progressSection').classList.remove('hidden');
+            document.getElementById('logContainer').innerHTML = '';
+
+            fetch('/api/start_migration', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    showAlert('error', data.error);
+                    resetMigrationButton();
+                }
+            })
+            .catch(error => {
+                showAlert('error', 'Failed to start migration: ' + error.message);
+                resetMigrationButton();
+            });
+        }
+
+        function updateProgress(data) {
+            const status = data.status;
+            
+            // Update progress bar
+            document.getElementById('progressFill').style.width = status.current_progress + '%';
+            document.getElementById('progressText').textContent = data.message;
+            
+            // Update status items
+            document.getElementById('currentTable').textContent = status.current_table || '-';
+            document.getElementById('tablesProgress').textContent = `${status.completed_tables} / ${status.total_tables}`;
+            document.getElementById('recordsProgress').textContent = `${status.processed_records} / ${status.total_records}`;
+            document.getElementById('parallelWorkers').textContent = status.parallel_workers || '0';
+            document.getElementById('overallProgress').textContent = Math.round(status.current_progress) + '%';
+            
+            // Update system info if available
+            if (status.system_info) {
+                const memory = status.system_info.memory;
+                const cpu = status.system_info.cpu;
+
+                document.getElementById('memoryUsage').textContent = 
+                    `${memory.used_memory_mb.toFixed(1)} MB / ${memory.total_memory_mb.toFixed(1)} MB (${memory.memory_percent.toFixed(1)}%)`;
+                
+                document.getElementById('cpuUsage').textContent = 
+                    `${cpu.cpu_percent.toFixed(1)}% (${cpu.cpu_cores_used} cores)`;
+                
+                document.getElementById('processMemory').textContent = 
+                    `${memory.process_memory_mb.toFixed(1)} MB (${memory.process_memory_percent.toFixed(1)}%)`;
+                
+                const warningElement = document.getElementById('memoryWarning');
+                if (memory.memory_warning) {
+                    warningElement.textContent = 'Yes';
+                    warningElement.className = 'memory-warning';
+                } else {
+                    warningElement.textContent = 'No';
+                    warningElement.className = 'memory-ok';
+                }
+            }
+            
+            // Add log entry
+            addLogEntry(data.message, 'info');
+            
+            // Check if migration is complete
+            if (!status.is_running) {
+                if (status.error_message) {
+                    showAlert('error', status.error_message);
+                    addLogEntry('Migration failed: ' + status.error_message, 'error');
+                } else if (status.success_message) {
+                    showAlert('success', status.success_message);
+                    addLogEntry('Migration completed successfully!', 'success');
+                }
+                resetMigrationButton();
+            }
+        }
+
+        function addLogEntry(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            
+            // Set Tailwind classes based on log type
+            let colorClass = 'text-blue-400'; // default info
+            if (type === 'success') colorClass = 'text-green-400';
+            else if (type === 'error') colorClass = 'text-red-400';
+            
+            logEntry.className = `${colorClass} mb-1`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function showAlert(type, message) {
+            const alertElement = document.getElementById(type + 'Alert');
+            alertElement.textContent = message;
+            alertElement.classList.remove('hidden');
+            alertElement.classList.add('block');
+            
+            setTimeout(() => {
+                alertElement.classList.add('hidden');
+                alertElement.classList.remove('block');
+            }, 5000);
+        }
+
+        function resetMigrationButton() {
+            isMigrationRunning = false;
+            document.getElementById('startMigration').disabled = false;
+            document.getElementById('startMigration').textContent = '🚀 Start Migration';
+        }
+
+        // Auto-refresh status every 5 seconds when migration is running
+        setInterval(() => {
+            if (isMigrationRunning) {
+                fetch('/api/status')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (!data.is_running && isMigrationRunning) {
+                            resetMigrationButton();
+                        }
+                    });
+            }
+        }, 5000);
+    </script>
+</body>
+</html>
