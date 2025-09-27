@@ -132,7 +132,10 @@ class DatabaseManager:
     
     def mysql_to_postgres_type(self, mysql_type: str) -> str:
         """Convert MySQL data type to PostgreSQL data type"""
-        mysql_type = mysql_type.lower()
+        # Ensure mysql_type is a string (handle bytes objects)
+        if isinstance(mysql_type, bytes):
+            mysql_type = mysql_type.decode('utf-8')
+        mysql_type = str(mysql_type).lower()
         
         if 'int' in mysql_type:
             if 'bigint' in mysql_type:
@@ -178,7 +181,10 @@ class DatabaseManager:
         columns = []
         for column in structure:
             col_name = column['name']
-            col_type = self.mysql_to_postgres_type(column['type'])
+            col_type_raw = column['type']
+            print(f"DEBUG: Processing column {col_name} with type {col_type_raw} (type: {type(col_type_raw)})")
+            col_type = self.mysql_to_postgres_type(col_type_raw)
+            print(f"DEBUG: Converted type: {col_type}")
             nullable = 'NULL' if column['null'] else 'NOT NULL'
             
             # Handle primary key
@@ -188,6 +194,7 @@ class DatabaseManager:
             columns.append(f'"{col_name}" {col_type} {nullable}')
         
         create_sql = f'CREATE TABLE "{table_name}" ({", ".join(columns)})'
+        print(f"DEBUG: Creating table with SQL: {create_sql}")
         cursor.execute(create_sql)
         connection.commit()
         cursor.close()
