@@ -117,7 +117,7 @@ The application automatically reloads when you make changes to the code, making 
 
 ### File Structure
 ```
-modaam/
+project/
 ├── app.py                 # Main Flask application
 ├── database_manager.py    # Database connection and migration logic
 ├── system_monitor.py      # System monitoring and resource management
