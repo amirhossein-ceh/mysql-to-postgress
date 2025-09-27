@@ -1,0 +1,20 @@
+# Database Configuration Template
+# Copy this to .env and update with your actual database credentials
+
+# MySQL Source Database
+MYSQL_HOST=localhost
+MYSQL_PORT=3306
+MYSQL_USER=root
+MYSQL_PASSWORD=your_mysql_password
+MYSQL_DATABASE=your_mysql_database
+
+# PostgreSQL Target Database
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_postgres_password
+POSTGRES_DATABASE=your_postgres_database
+
+# Application Configuration
+SECRET_KEY=M0d@@m
+FLASK_ENV=development

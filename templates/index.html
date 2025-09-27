@@ -251,6 +251,8 @@
         const socket = io();
         let isMigrationRunning = false;
         let systemMonitorInterval;
+        let migrationStartTime = null;
+        let migrationTimeoutInterval = null;
 
         socket.on('progress_update', function(data) {
             updateProgress(data);
@@ -519,10 +521,18 @@
             }
 
             isMigrationRunning = true;
+            migrationStartTime = Date.now();
             document.getElementById('startMigration').disabled = true;
-            document.getElementById('startMigration').textContent = '🔄 Migration in Progress...';
+            document.getElementById('startMigration').textContent = '🔄 Starting Migration...';
             document.getElementById('progressSection').classList.remove('hidden');
             document.getElementById('logContainer').innerHTML = '';
+            
+            // Add initial log entry
+            addLogEntry('🚀 Starting migration process...', 'info');
+            addLogEntry('⏳ Please wait while we test connections and prepare migration...', 'info');
+            
+            // Start timeout monitoring
+            startMigrationTimeoutMonitoring();
 
             fetch('/api/start_migration', {
                 method: 'POST',
@@ -530,15 +540,27 @@
                     'Content-Type': 'application/json',
                 }
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
             .then(data => {
                 if (data.error) {
                     showAlert('error', data.error);
+                    addLogEntry(`❌ Migration failed to start: ${data.error}`, 'error');
                     resetMigrationButton();
+                } else {
+                    addLogEntry('✅ Migration started successfully!', 'success');
+                    document.getElementById('startMigration').textContent = '🔄 Migration in Progress...';
                 }
             })
             .catch(error => {
-                showAlert('error', 'Failed to start migration: ' + error.message);
+                const errorMsg = `Failed to start migration: ${error.message}`;
+                showAlert('error', errorMsg);
+                addLogEntry(`❌ ${errorMsg}`, 'error');
+                addLogEntry('💡 Try running the debug script: python debug_connections.py', 'info');
                 resetMigrationButton();
             });
         }
@@ -627,8 +649,40 @@
 
         function resetMigrationButton() {
             isMigrationRunning = false;
+            migrationStartTime = null;
+            stopMigrationTimeoutMonitoring();
             document.getElementById('startMigration').disabled = false;
             document.getElementById('startMigration').textContent = '🚀 Start Migration';
+        }
+        
+        function startMigrationTimeoutMonitoring() {
+            // Clear any existing timeout monitoring
+            stopMigrationTimeoutMonitoring();
+            
+            // Check every 10 seconds if migration is stuck
+            migrationTimeoutInterval = setInterval(() => {
+                if (isMigrationRunning && migrationStartTime) {
+                    const elapsed = Date.now() - migrationStartTime;
+                    const elapsedSeconds = Math.floor(elapsed / 1000);
+                    
+                    // If no progress for 30 seconds, show warning
+                    if (elapsedSeconds > 30 && elapsedSeconds % 10 === 0) {
+                        addLogEntry(`⏰ Migration running for ${elapsedSeconds} seconds. If it seems stuck, check your database connections.`, 'info');
+                    }
+                    
+                    // If no progress for 2 minutes, suggest debugging
+                    if (elapsedSeconds > 120 && elapsedSeconds % 30 === 0) {
+                        addLogEntry(`⚠️ Migration has been running for ${Math.floor(elapsedSeconds/60)} minutes. Consider running: python debug_connections.py`, 'info');
+                    }
+                }
+            }, 10000);
+        }
+        
+        function stopMigrationTimeoutMonitoring() {
+            if (migrationTimeoutInterval) {
+                clearInterval(migrationTimeoutInterval);
+                migrationTimeoutInterval = null;
+            }
         }
 
         // Auto-refresh status every 5 seconds when migration is running

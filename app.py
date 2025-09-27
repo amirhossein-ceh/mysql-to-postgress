@@ -241,65 +241,116 @@ def start_migration():
     if migration_status['is_running']:
         return jsonify({'error': 'Migration is already running'}), 400
     
-    # Get database configuration from environment variables
-    mysql_config, postgres_config = get_database_config_from_env()
-    
-    # Validate required fields
-    if not mysql_config['database'] or not postgres_config['database']:
-        return jsonify({'error': 'Database names must be configured in .env file'}), 400
-    
-    if not mysql_config['password'] or not postgres_config['password']:
-        return jsonify({'error': 'Database passwords must be configured in .env file'}), 400
-    
-    # Reset status
-    migration_status.update({
-        'is_running': True,
-        'current_table': '',
-        'total_tables': 0,
-        'completed_tables': 0,
-        'current_progress': 0,
-        'total_records': 0,
-        'processed_records': 0,
-        'error_message': '',
-        'success_message': '',
-        'active_tables': [],
-        'parallel_workers': 0
-    })
-    
-    # Start migration in a separate thread
-    migration_thread = threading.Thread(
-        target=run_migration,
-        args=(mysql_config, postgres_config)
-    )
-    migration_thread.daemon = True
-    migration_thread.start()
-    
-    return jsonify({'message': 'Migration started'})
+    try:
+        # Get database configuration from environment variables
+        mysql_config, postgres_config = get_database_config_from_env()
+        
+        # Validate required fields with detailed error messages
+        if not mysql_config['database']:
+            return jsonify({'error': 'MySQL database name is not configured. Please set MYSQL_DATABASE in your .env file.'}), 400
+        
+        if not postgres_config['database']:
+            return jsonify({'error': 'PostgreSQL database name is not configured. Please set POSTGRES_DATABASE in your .env file.'}), 400
+        
+        if not mysql_config['password']:
+            return jsonify({'error': 'MySQL password is not configured. Please set MYSQL_PASSWORD in your .env file.'}), 400
+        
+        if not postgres_config['password']:
+            return jsonify({'error': 'PostgreSQL password is not configured. Please set POSTGRES_PASSWORD in your .env file.'}), 400
+        
+        # Test database connections before starting migration
+        emit_progress_safe('Testing database connections before starting migration...')
+        
+        try:
+            # Test MySQL connection
+            mysql_conn = db_manager.create_mysql_connection(mysql_config)
+            mysql_conn.close()
+            emit_progress_safe('✓ MySQL connection test successful')
+        except Exception as e:
+            error_msg = f'MySQL connection failed: {str(e)}. Please check your MySQL configuration in .env file.'
+            emit_progress_safe(f'✗ {error_msg}')
+            return jsonify({'error': error_msg}), 400
+        
+        try:
+            # Test PostgreSQL connection
+            postgres_conn = db_manager.create_postgres_connection(postgres_config)
+            postgres_conn.close()
+            emit_progress_safe('✓ PostgreSQL connection test successful')
+        except Exception as e:
+            error_msg = f'PostgreSQL connection failed: {str(e)}. Please check your PostgreSQL configuration in .env file.'
+            emit_progress_safe(f'✗ {error_msg}')
+            return jsonify({'error': error_msg}), 400
+        
+        # Reset status
+        migration_status.update({
+            'is_running': True,
+            'current_table': '',
+            'total_tables': 0,
+            'completed_tables': 0,
+            'current_progress': 0,
+            'total_records': 0,
+            'processed_records': 0,
+            'error_message': '',
+            'success_message': '',
+            'active_tables': [],
+            'parallel_workers': 0
+        })
+        
+        # Start migration in a separate thread
+        migration_thread = threading.Thread(
+            target=run_migration,
+            args=(mysql_config, postgres_config)
+        )
+        migration_thread.daemon = True
+        migration_thread.start()
+        
+        emit_progress_safe('🚀 Migration thread started successfully!')
+        return jsonify({'message': 'Migration started successfully'})
+        
+    except Exception as e:
+        error_msg = f'Failed to start migration: {str(e)}'
+        emit_progress_safe(f'✗ {error_msg}')
+        return jsonify({'error': error_msg}), 500
 
 def run_migration(mysql_config, postgres_config):
     """Main migration function with parallel processing"""
     global migration_status
     
+    mysql_conn = None
+    postgres_conn = None
+    
     try:
-        # Connect to databases
-        emit_progress_safe('Connecting to MySQL database...')
-        mysql_conn = db_manager.connect_mysql(mysql_config)
+        # Connect to databases with timeout handling
+        emit_progress_safe('🔌 Connecting to MySQL database...')
+        try:
+            mysql_conn = db_manager.connect_mysql(mysql_config)
+            emit_progress_safe('✓ MySQL connection established')
+        except Exception as e:
+            raise Exception(f'Failed to connect to MySQL: {str(e)}')
         
-        emit_progress_safe('Connecting to PostgreSQL database...')
-        postgres_conn = db_manager.connect_postgres(postgres_config)
+        emit_progress_safe('🔌 Connecting to PostgreSQL database...')
+        try:
+            postgres_conn = db_manager.connect_postgres(postgres_config)
+            emit_progress_safe('✓ PostgreSQL connection established')
+        except Exception as e:
+            raise Exception(f'Failed to connect to PostgreSQL: {str(e)}')
         
         # Get all tables from MySQL
-        emit_progress_safe('Fetching table list from MySQL...')
-        tables = db_manager.get_mysql_tables(mysql_conn)
-        update_migration_status({'total_tables': len(tables)})
-        
-        emit_progress_safe(f'Found {len(tables)} tables to migrate')
+        emit_progress_safe('📋 Fetching table list from MySQL...')
+        try:
+            tables = db_manager.get_mysql_tables(mysql_conn)
+            if not tables:
+                raise Exception('No tables found in MySQL database')
+            update_migration_status({'total_tables': len(tables)})
+            emit_progress_safe(f'✓ Found {len(tables)} tables to migrate: {", ".join(tables[:5])}{"..." if len(tables) > 5 else ""}')
+        except Exception as e:
+            raise Exception(f'Failed to fetch tables from MySQL: {str(e)}')
         
         # Create thread pool executor for parallel table processing
         max_workers = min(system_monitor.cpu_cores, len(tables))
         update_migration_status({'parallel_workers': max_workers})
         
-        emit_progress_safe(f'Starting parallel migration with {max_workers} workers')
+        emit_progress_safe(f'⚡ Starting parallel migration with {max_workers} workers')
         
         # Use ThreadPoolExecutor for parallel table migration
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -324,36 +375,45 @@ def run_migration(mysql_config, postgres_config):
                     result = future.result()
                     completed_tables += 1
                     update_migration_status({'completed_tables': completed_tables})
-                    emit_progress_safe(f'Completed table: {table_name} ({completed_tables}/{len(tables)})')
+                    emit_progress_safe(f'✅ Completed table: {table_name} ({completed_tables}/{len(tables)})')
                 except Exception as e:
-                    emit_progress_safe(f'Error migrating table {table_name}: {str(e)}')
-                    raise e
+                    error_msg = f'❌ Error migrating table {table_name}: {str(e)}'
+                    emit_progress_safe(error_msg)
+                    raise Exception(error_msg)
         
         update_migration_status({
             'completed_tables': len(tables),
             'current_progress': 100,
-            'success_message': f'Successfully migrated {len(tables)} tables using {max_workers} parallel workers!',
+            'success_message': f'🎉 Successfully migrated {len(tables)} tables using {max_workers} parallel workers!',
             'is_running': False
         })
         
-        emit_progress_safe('Migration completed successfully!')
+        emit_progress_safe('🎉 Migration completed successfully!')
         
     except Exception as e:
+        error_msg = f'❌ Migration failed: {str(e)}'
         update_migration_status({
-            'error_message': str(e),
+            'error_message': error_msg,
             'is_running': False
         })
-        emit_progress_safe(f'Migration failed: {str(e)}')
+        emit_progress_safe(error_msg)
+        print(f"Migration error: {e}")  # Also log to console for debugging
     
     finally:
-        # Close connections
+        # Close connections safely
         try:
-            if 'mysql_conn' in locals():
+            if mysql_conn:
                 mysql_conn.close()
-            if 'postgres_conn' in locals():
+                emit_progress_safe('🔌 MySQL connection closed')
+        except Exception as e:
+            emit_progress_safe(f'⚠️ Warning: Error closing MySQL connection: {str(e)}')
+        
+        try:
+            if postgres_conn:
                 postgres_conn.close()
-        except:
-            pass
+                emit_progress_safe('🔌 PostgreSQL connection closed')
+        except Exception as e:
+            emit_progress_safe(f'⚠️ Warning: Error closing PostgreSQL connection: {str(e)}')
 
 def migrate_table_parallel(mysql_config, postgres_config, table_name, table_index, total_tables):
     """Migrate a single table with parallel batch processing"""
@@ -362,23 +422,41 @@ def migrate_table_parallel(mysql_config, postgres_config, table_name, table_inde
     
     try:
         # Create dedicated connections for this thread
-        mysql_conn = db_manager.create_mysql_connection(mysql_config)
-        postgres_conn = db_manager.create_postgres_connection(postgres_config)
+        emit_progress_safe(f'🔗 Creating connections for table: {table_name}', table_name)
+        try:
+            mysql_conn = db_manager.create_mysql_connection(mysql_config)
+            postgres_conn = db_manager.create_postgres_connection(postgres_config)
+        except Exception as e:
+            raise Exception(f'Failed to create database connections for table {table_name}: {str(e)}')
         
-        emit_progress_safe(f'Starting migration of table: {table_name}', table_name)
+        emit_progress_safe(f'📊 Starting migration of table: {table_name}', table_name)
         
         # Get table structure
-        table_structure = db_manager.get_mysql_table_structure(mysql_conn, table_name)
+        try:
+            table_structure = db_manager.get_mysql_table_structure(mysql_conn, table_name)
+            if not table_structure:
+                raise Exception(f'No structure found for table {table_name}')
+            emit_progress_safe(f'✓ Retrieved structure for table {table_name} ({len(table_structure)} columns)')
+        except Exception as e:
+            raise Exception(f'Failed to get structure for table {table_name}: {str(e)}')
         
         # Get total record count
-        total_records = db_manager.get_mysql_table_count(mysql_conn, table_name)
-        update_migration_status({'total_records': total_records})
+        try:
+            total_records = db_manager.get_mysql_table_count(mysql_conn, table_name)
+            update_migration_status({'total_records': total_records})
+            emit_progress_safe(f'📈 Table {table_name} has {total_records} records')
+        except Exception as e:
+            raise Exception(f'Failed to get record count for table {table_name}: {str(e)}')
         
         # Create table in PostgreSQL
-        db_manager.create_postgres_table(postgres_conn, table_name, table_structure)
+        try:
+            db_manager.create_postgres_table(postgres_conn, table_name, table_structure)
+            emit_progress_safe(f'✓ Created PostgreSQL table: {table_name}')
+        except Exception as e:
+            raise Exception(f'Failed to create PostgreSQL table {table_name}: {str(e)}')
         
         if total_records == 0:
-            emit_progress_safe(f'Table {table_name} is empty, skipping data migration')
+            emit_progress_safe(f'⚠️ Table {table_name} is empty, skipping data migration')
             return
         
         # Process data in parallel batches
@@ -391,7 +469,7 @@ def migrate_table_parallel(mysql_config, postgres_config, table_name, table_inde
             limit = min(batch_size, total_records - offset)
             batch_ranges.append((offset, limit))
         
-        emit_progress_safe(f'Processing {len(batch_ranges)} batches for table {table_name} with {max_workers} workers')
+        emit_progress_safe(f'⚡ Processing {len(batch_ranges)} batches for table {table_name} with {max_workers} workers (batch size: {batch_size})')
         
         # Use ThreadPoolExecutor for parallel batch processing
         with ThreadPoolExecutor(max_workers=max_workers) as batch_executor:
@@ -419,13 +497,16 @@ def migrate_table_parallel(mysql_config, postgres_config, table_name, table_inde
                     processed_records += batch_processed
                     update_progress(batch_processed, total_records, table_index, total_tables)
                 except Exception as e:
-                    emit_progress_safe(f'Error processing batch for table {table_name}: {str(e)}')
-                    raise e
+                    error_msg = f'❌ Error processing batch for table {table_name}: {str(e)}'
+                    emit_progress_safe(error_msg)
+                    raise Exception(error_msg)
         
-        emit_progress_safe(f'Completed table {table_name}: {processed_records} records migrated')
+        emit_progress_safe(f'✅ Completed table {table_name}: {processed_records} records migrated')
         
     except Exception as e:
-        emit_progress_safe(f'Error migrating table {table_name}: {str(e)}')
+        error_msg = f'❌ Error migrating table {table_name}: {str(e)}'
+        emit_progress_safe(error_msg)
+        print(f"Table migration error for {table_name}: {e}")  # Also log to console
         raise e
     
     finally:
@@ -433,10 +514,14 @@ def migrate_table_parallel(mysql_config, postgres_config, table_name, table_inde
         try:
             if mysql_conn:
                 mysql_conn.close()
+        except Exception as e:
+            emit_progress_safe(f'⚠️ Warning: Error closing MySQL connection for table {table_name}: {str(e)}')
+        
+        try:
             if postgres_conn:
                 postgres_conn.close()
-        except:
-            pass
+        except Exception as e:
+            emit_progress_safe(f'⚠️ Warning: Error closing PostgreSQL connection for table {table_name}: {str(e)}')
 
 def process_batch_parallel(mysql_config, postgres_config, table_name, table_structure, offset, limit, batch_index, total_batches):
     """Process a single batch of records in parallel"""
@@ -445,11 +530,17 @@ def process_batch_parallel(mysql_config, postgres_config, table_name, table_stru
     
     try:
         # Create dedicated connections for this batch
-        mysql_conn = db_manager.create_mysql_connection(mysql_config)
-        postgres_conn = db_manager.create_postgres_connection(postgres_config)
+        try:
+            mysql_conn = db_manager.create_mysql_connection(mysql_config)
+            postgres_conn = db_manager.create_postgres_connection(postgres_config)
+        except Exception as e:
+            raise Exception(f'Failed to create batch connections: {str(e)}')
         
         # Get batch data
-        batch_data = db_manager.get_mysql_table_data_batch(mysql_conn, table_name, offset, limit)
+        try:
+            batch_data = db_manager.get_mysql_table_data_batch(mysql_conn, table_name, offset, limit)
+        except Exception as e:
+            raise Exception(f'Failed to fetch batch data (offset {offset}, limit {limit}): {str(e)}')
         
         if not batch_data:
             return 0
@@ -459,17 +550,21 @@ def process_batch_parallel(mysql_config, postgres_config, table_name, table_stru
             memory_controller.pause_for_memory_recovery()
         
         # Insert batch data
-        processed_count = db_manager.insert_postgres_data_batch(
-            postgres_conn, 
-            table_name, 
-            batch_data, 
-            table_structure
-        )
-        
-        return processed_count
+        try:
+            processed_count = db_manager.insert_postgres_data_batch(
+                postgres_conn, 
+                table_name, 
+                batch_data, 
+                table_structure
+            )
+            return processed_count
+        except Exception as e:
+            raise Exception(f'Failed to insert batch data: {str(e)}')
         
     except Exception as e:
-        emit_progress_safe(f'Error processing batch {batch_index + 1}/{total_batches} for table {table_name}: {str(e)}')
+        error_msg = f'❌ Error processing batch {batch_index + 1}/{total_batches} for table {table_name}: {str(e)}'
+        emit_progress_safe(error_msg)
+        print(f"Batch processing error: {e}")  # Also log to console
         raise e
     
     finally:
@@ -477,10 +572,14 @@ def process_batch_parallel(mysql_config, postgres_config, table_name, table_stru
         try:
             if mysql_conn:
                 mysql_conn.close()
+        except Exception as e:
+            print(f"Warning: Error closing MySQL batch connection: {e}")
+        
+        try:
             if postgres_conn:
                 postgres_conn.close()
-        except:
-            pass
+        except Exception as e:
+            print(f"Warning: Error closing PostgreSQL batch connection: {e}")
 
 def emit_progress(message):
     # Update system info before emitting

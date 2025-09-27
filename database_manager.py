@@ -20,7 +20,9 @@ class DatabaseManager:
                 user=config.get('user', 'root'),
                 password=config.get('password', ''),
                 database=config.get('database', ''),
-                charset='utf8mb4'
+                charset='utf8mb4',
+                connection_timeout=30,  # 30 second connection timeout
+                autocommit=True
             )
             return connection
         except mysql.connector.Error as e:
@@ -34,8 +36,11 @@ class DatabaseManager:
                 port=config.get('port', 5432),
                 user=config.get('user', 'postgres'),
                 password=config.get('password', ''),
-                database=config.get('database', 'postgres')
+                database=config.get('database', 'postgres'),
+                connect_timeout=30,  # 30 second connection timeout
+                application_name='db_migration_tool'
             )
+            connection.autocommit = True
             return connection
         except psycopg2.Error as e:
             raise Exception(f"PostgreSQL connection error: {e}")
@@ -49,7 +54,9 @@ class DatabaseManager:
                 user=config.get('user', 'root'),
                 password=config.get('password', ''),
                 database=config.get('database', ''),
-                charset='utf8mb4'
+                charset='utf8mb4',
+                connection_timeout=30,  # 30 second connection timeout
+                autocommit=True
             )
             return self.mysql_connection
         except mysql.connector.Error as e:
@@ -63,8 +70,11 @@ class DatabaseManager:
                 port=config.get('port', 5432),
                 user=config.get('user', 'postgres'),
                 password=config.get('password', ''),
-                database=config.get('database', 'postgres')
+                database=config.get('database', 'postgres'),
+                connect_timeout=30,  # 30 second connection timeout
+                application_name='db_migration_tool'
             )
+            self.postgres_connection.autocommit = True
             return self.postgres_connection
         except psycopg2.Error as e:
             raise Exception(f"PostgreSQL connection error: {e}")
